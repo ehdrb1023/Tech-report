@@ -1,0 +1,263 @@
+# ============================================================
+#  수집 대상 / 필터링 / 스코어링 설정
+#  비밀값은 여기에 넣지 말고 .env 를 사용하세요.
+#
+#  구조:
+#    Reddit (무료)  → 넓게 긁어서 로컬에서 필터
+#    X (종량제)     → 특정 인물만 좁혀서 받음
+#    arXiv          → 수집 소스가 아님. 위 두 곳에서 링크된 논문만 조회(보강)
+# ============================================================
+
+collect:
+  lookback_hours: 24        # 최근 N시간 내 게시물만 수집
+
+  # 문턱을 넘은 건 개수 제한 없이 전부 Claude 에게 보낸다.
+  # 24시간 안에 나오는 유용한 글은 많지 않고, 산수로 미리 자르는 것보다
+  # Claude 가 내용을 읽고 고르는 편이 낫기 때문. (0 = 무제한)
+  max_items: 0
+  per_source_cap: 0
+
+  # --- 진짜 관문 ---
+  # 키워드 점수 자체의 최소치. "이 글이 우리 관심사와 관련이 있는가"를 판단한다.
+  #   2.0 = medium 이상 1개 (claude, qwen, deepseek, rag ...) 또는 high 1개
+  #   1.0 으로 낮추면 release/api/research 같은 일반어만 걸린 잡담이 들어온다.
+  #   3.0 으로 올리면 "Qwen 3.8 Max 공개" 같은 모델 릴리스가 탈락한다.
+  min_keyword_score: 2.0
+  # 총점 하한(보조). 키워드 문턱을 통과하면 대부분 자동으로 넘는다.
+  min_score: 3.0
+
+# ------------------------------------------------------------
+# Reddit — 공개 RSS 사용 (인증 불필요)
+#
+#   Reddit 은 공개 `.json` 을 어떤 User-Agent 로도 403 으로 막지만
+#   RSS/Atom 피드는 열려 있다. 대신 제약이 있다:
+#     - 업보트·댓글 수가 없다 → 인기도 스코어링 불가, min_upvotes 무효
+#     - 페이지네이션이 안 된다 → 서브레딧당 최신 ~25건이 한계
+#     - 연속 요청에 민감 → request_delay_seconds 로 간격을 둔다
+#
+#   REDDIT_CLIENT_ID/SECRET 를 넣으면 자동으로 OAuth+JSON 경로로 바뀌며
+#   업보트와 페이지네이션이 살아난다 (앱 등록이 가능해지면 그쪽이 낫다).
+# ------------------------------------------------------------
+reddit:
+  enabled: true
+
+  # 요청 사이 대기(초). 실측(2/5/10초 비교)상 딜레이 자체는 429 를 크게 줄이지
+  # 못했고, 실제로 서브레딧을 구제하는 건 아래 429 재시도였다. 5초가 가장 나았다.
+  #   2초 → 6/10 성공(94건) · 5초 → 8/10(108건) · 10초 → 7/10(105건)
+  request_delay_seconds: 5.0
+  # 429 를 받으면 이만큼 쉬었다가 그 서브레딧을 한 번 더 시도한다.
+  # 서브레딧 10개 기준 전체 실행에 5~7분이 걸릴 수 있다(일 1회 실행이라 무방).
+  rate_limit_wait_seconds: 45.0
+
+  # /new 25건으로 24시간을 못 덮은 서브레딧에 한해 "오늘의 인기글"(top?t=day)을
+  # 한 번 더 받아 놓친 글을 보충한다. 전체에 적용하면 요청이 두 배가 되므로
+  # 잘린 곳에만 쓴다. 끄면 실행이 조금 빨라지는 대신 커버리지가 준다.
+  supplement_with_top_daily: true
+
+  subreddits:
+    - LocalLLaMA
+    - MachineLearning
+    - AI_Agents
+    - OpenAI
+    - ClaudeAI
+    - singularity
+    - artificial
+    - LangChain
+    - LLMDevs
+    - agi
+  # --- 아래 두 개는 OAuth 경로에서만 적용된다 (RSS 에는 업보트·페이지네이션이 없음) ---
+  max_pages_per_sub: 5      # 서브레딧당 최대 페이지 (1페이지 = 100건)
+  min_upvotes: 5            # 이 미만 업보트는 노이즈로 간주
+
+# ------------------------------------------------------------
+# X (Twitter) — 특정 인물들의 타임라인만 읽는다. 검색이 아니다.
+#
+#   X_BEARER_TOKEN 이 있으면  → 공식 API (권장)
+#   없으면                    → Nitter/RSSHub 미러 RSS (무료, 가용성 보장 안 됨)
+#
+#   공식 API 는 종량제(읽기 1건당 과금)다. 비용 = 계정 수 × 그 사람의 포스팅 량.
+#   키워드로는 비용이 안 줄어든다 — 줄이려면 계정을 줄여야 한다.
+# ------------------------------------------------------------
+x:
+  enabled: true
+  # 공식 API 사용 시 계정당 한 번에 받을 최대 트윗 수 (5~100).
+  # 비용 상한 역할을 한다 — 누가 하루에 200개를 써도 여기까지만 받는다.
+  max_results_per_account: 20
+
+  # --- Nitter 폴백용 ---
+  # 2026-08-03 실측: nitter.net 정상 / xcancel·rss.xcancel 은 화이트리스트 필요
+  # / nitter.poast.org·lightbrd·nitter.space 는 403 / rsshub.app 는 404.
+  rss_templates:
+    - https://nitter.net/{username}/rss
+    - https://nitter.tiekoetter.com/{username}/rss
+    - https://nitter.privacyredirect.com/{username}/rss
+    - https://twiiit.com/{username}/rss
+    - https://xcancel.com/{username}/rss
+  request_timeout: 20
+  max_mirror_tries: 3
+
+  # 팔로우할 인물 (@ 없이 계정명만).
+  # 공식 API 로 전환하면 이 목록의 길이가 곧 월 비용이다.
+  accounts:
+    # --- 연구소 / 리더 ---
+    - sama                 # Sam Altman (OpenAI)
+    - gdb                  # Greg Brockman (OpenAI)
+    - demishassabis        # Demis Hassabis (DeepMind)
+    - ylecun               # Yann LeCun
+    - AndrewYNg            # Andrew Ng
+    - JeffDean             # Jeff Dean (Google)
+    - karpathy             # Andrej Karpathy
+    - ilyasut              # Ilya Sutskever
+    # --- 에이전트 / 실무 ---
+    - hwchase17            # Harrison Chase (LangChain)
+    - jerryjliu0           # Jerry Liu (LlamaIndex)
+    - DrJimFan             # Jim Fan (NVIDIA)
+    - _philschmid          # Philipp Schmid (Google DeepMind)
+    - alexalbert__         # Alex Albert (Anthropic)
+    - swyx                 # Shawn Wang (Latent Space)
+    - simonw               # Simon Willison
+    - emollick             # Ethan Mollick
+    - rowancheung          # Rowan Cheung (The Rundown)
+    - omarsar0             # Elvis Saravia (DAIR.AI)
+
+# ------------------------------------------------------------
+# arXiv — 발견이 아니라 보강(enrichment)
+#   Reddit/X 글에 걸린 arXiv 링크만 조회해서 초록·저자·제목을 채운다.
+#   선별을 통과한 항목에 대해서만 호출하므로 요청 수가 적다.
+# ------------------------------------------------------------
+arxiv:
+  enabled: true
+  request_timeout: 30
+
+# ------------------------------------------------------------
+# 중복 보도 방지
+#   화제의 논문은 며칠 회자되므로 24시간 창만으로는 반복 보도를 못 막는다.
+#   보도한 글 ID / arXiv ID 를 기록해 두고 재등장 시 제외한다.
+# ------------------------------------------------------------
+state:
+  enabled: true
+  ttl_days: 7               # 이 기간이 지나면 기록에서 만료 (다시 보도 가능)
+
+# ------------------------------------------------------------
+# 키워드 필터링 / 스코어링
+#   최종점수 = 키워드가중치합 + 인기도 + 최신성 + 소스가중치 + 논문가산점
+#
+#   주의: 이 키워드들은 "무엇을 받아올지"가 아니라 "받아온 것 중 무엇을 올릴지"를
+#   정합니다. Reddit/X 모두 키워드를 서버로 보내지 않습니다.
+# ------------------------------------------------------------
+scoring:
+  source_weight:
+    reddit: 1.0
+    x: 2.0                  # 검증된 인물의 발화라 신호 대비 잡음이 낮음
+
+  engagement_cap: 4.0       # 인기도(업보트/좋아요) 반영 상한
+  recency_weight: 2.0       # 최신성: 방금 글이 이 점수, lookback 경계에서 0점
+  paper_bonus: 2.5          # 논문 링크가 걸린 글에 가산점
+  cross_mention_bonus: 1.5  # 같은 논문을 언급한 사람 1명당 가산점
+
+  keywords:
+    # --- 핵심: AI 에이전트 (가중치 최상) ---
+    high:
+      weight: 3.0
+      terms:
+        - ai agent
+        - agentic
+        - multi-agent
+        - multi agent
+        - autonomous agent
+        - agent framework
+        - tool use
+        - tool calling
+        - function calling
+        - computer use
+        - browser agent
+        - coding agent
+        - mcp
+        - model context protocol
+        - agent orchestration
+        - swarm
+        - claude code
+        - langgraph
+        - autogen
+        - crewai
+        - openai agents sdk
+        # 실측에서 놓쳤던 것들 — 에이전트 활용 사례가 키워드 0개로 탈락했음
+        - agent skill
+        - agent harness
+        - harness
+        - subagent
+        - sub-agent
+        - agent memory
+        - workflow automation
+        - self-improving
+
+    # --- 중요: 최신 모델 / 기술 트렌드 ---
+    medium:
+      weight: 2.0
+      terms:
+        - gpt-5
+        - gpt5
+        - claude
+        - anthropic
+        - gemini
+        - llama
+        - deepseek
+        - qwen
+        - mistral
+        - grok
+        - codex
+        - copilot
+        - cursor
+        - o3
+        - o4
+        - reasoning model
+        - chain of thought
+        - test-time compute
+        - rag
+        - retrieval augmented
+        - fine-tuning
+        - lora
+        - quantization
+        - context window
+        - long context
+        - benchmark
+        - sota
+        - open source model
+        - open-weight
+        - inference
+        - vllm
+        - diffusion
+        - world model
+        - robotics
+        - embodied
+
+    # --- 보조: 산업 / 릴리스 신호 ---
+    low:
+      weight: 1.0
+      terms:
+        - release
+        - launch
+        - announce
+        - open source
+        - api
+        - funding
+        - acquisition
+        - startup
+        - paper
+        - research
+        - breakthrough
+        - roadmap
+        - preview
+        - beta
+
+    # --- 제외: 매칭되면 즉시 폐기 ---
+    blocked:
+      - nsfw
+      - onlyfans
+      - waifu
+      - crypto pump
+      - airdrop
+      - hiring thread
+      - who's hiring
+      - meme monday
+      - shitpost
