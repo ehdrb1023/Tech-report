@@ -58,7 +58,8 @@ jobs:
 
       - name: Run pipeline
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # 추가 채널은 DISCORD_WEBHOOK_URL_EXTRA 에 넣는다 (비어 있으면 무시)
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }},${{ secrets.DISCORD_WEBHOOK_URL_EXTRA }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL }}
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}

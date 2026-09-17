@@ -236,7 +236,7 @@ X는 2026년 2월부터 **종량제**입니다. 무료 티어와 Basic($200/월)
 
 | 이름 | 필수 | 설명 |
 |---|:--:|---|
-| `DISCORD_WEBHOOK_URL` | ✅ | Discord 웹훅 URL |
+| `DISCORD_WEBHOOK_URL` | ✅ | Discord 웹훅 URL (여러 채널이면 줄바꿈·쉼표로 구분) |
 | `ANTHROPIC_API_KEY` | ✅ | Anthropic API 키 |
 | `REDDIT_CLIENT_ID` | — | 있으면 OAuth+JSON, 없으면 공개 RSS |
 | `REDDIT_CLIENT_SECRET` | — | 위와 동일 |

@@ -44,21 +44,29 @@ SOURCE_BADGE = {
 class DiscordSender:
     def __init__(self, config: Config) -> None:
         self.config = config
-        self.webhook_url = config.discord_webhook_url
+        self.webhook_urls = config.discord_webhook_urls
         self.tz = ZoneInfo(config.timezone_name)
 
     # ------------------------------------------------------------------
     def send(self, report: Report) -> bool:
         messages = self.build_messages(report)
         ok = True
-        for index, payload in enumerate(messages, start=1):
-            if not self._post(payload):
+        # 한 채널이 실패해도 나머지 채널에는 계속 보낸다
+        for channel, url in enumerate(self.webhook_urls, start=1):
+            if not self._send_to(url, messages, channel):
                 ok = False
-                log.error("메시지 %d/%d 전송 실패", index, len(messages))
+        return ok
+
+    def _send_to(self, url: str, messages: list[dict], channel: int) -> bool:
+        ok = True
+        for index, payload in enumerate(messages, start=1):
+            if not self._post(url, payload):
+                ok = False
+                log.error("채널 %d: 메시지 %d/%d 전송 실패", channel, index, len(messages))
             if index < len(messages):
                 time.sleep(1.0)  # 웹훅 rate limit 여유
         if ok:
-            log.info("Discord 전송 완료 (%d개 메시지)", len(messages))
+            log.info("채널 %d: Discord 전송 완료 (%d개 메시지)", channel, len(messages))
         return ok
 
     # ------------------------------------------------------------------
@@ -191,10 +199,10 @@ class DiscordSender:
         )
 
     # ------------------------------------------------------------------
-    def _post(self, payload: dict, retries: int = 3) -> bool:
+    def _post(self, url: str, payload: dict, retries: int = 3) -> bool:
         for attempt in range(retries):
             try:
-                resp = requests.post(self.webhook_url, json=payload, timeout=30)
+                resp = requests.post(url, json=payload, timeout=30)
                 if resp.status_code == 429:
                     wait = float(resp.headers.get("Retry-After") or 2)
                     log.warning("Discord rate limit, %.1fs 대기", wait)
@@ -212,20 +220,20 @@ class DiscordSender:
     # ------------------------------------------------------------------
     def send_error(self, message: str) -> None:
         """파이프라인이 죽었을 때 알림."""
-        if not self.webhook_url:
+        if not self.webhook_urls:
             return
         now = datetime.now(self.tz).strftime("%Y-%m-%d %H:%M")
-        self._post(
-            {
-                "username": "AI Trend Bot",
-                "allowed_mentions": {"parse": []},
-                "embeds": [
-                    {
-                        "title": "⚠️ 트렌드 리포트 생성 실패",
-                        "description": f"```\n{message[:1500]}\n```",
-                        "color": 0xD63031,
-                        "footer": {"text": now},
-                    }
-                ],
-            }
-        )
+        payload = {
+            "username": "AI Trend Bot",
+            "allowed_mentions": {"parse": []},
+            "embeds": [
+                {
+                    "title": "⚠️ 트렌드 리포트 생성 실패",
+                    "description": f"```\n{message[:1500]}\n```",
+                    "color": 0xD63031,
+                    "footer": {"text": now},
+                }
+            ],
+        }
+        for url in self.webhook_urls:
+            self._post(url, payload)

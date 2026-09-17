@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -84,8 +85,10 @@ class Config:
         return (os.getenv(key) or default).strip()
 
     @property
-    def discord_webhook_url(self) -> str:
-        return self.env("DISCORD_WEBHOOK_URL")
+    def discord_webhook_urls(self) -> list[str]:
+        # 쉼표·줄바꿈으로 여러 개를 넣으면 같은 리포트를 채널마다 보낸다
+        raw = self.env("DISCORD_WEBHOOK_URL")
+        return [url for url in re.split(r"[,\s]+", raw) if url]
 
     @property
     def anthropic_api_key(self) -> str:
@@ -139,7 +142,7 @@ class Config:
     def validate_for_send(self) -> None:
         """실제 전송 전에 필수 비밀값을 확인."""
         missing = []
-        if not self.discord_webhook_url:
+        if not self.discord_webhook_urls:
             missing.append("DISCORD_WEBHOOK_URL")
         if not self.anthropic_api_key:
             missing.append("ANTHROPIC_API_KEY")
